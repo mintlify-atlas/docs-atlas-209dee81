@@ -1,0 +1,106 @@
+{
+  "projectType": "api-service",
+  "projectName": "GoMa'luum",
+  "projectDescription": "A stateless proxy API that wraps IIUM's i-Ma'luum student portal, enabling developers to access academic data (profile, schedule, results, starpoints) as clean JSON.",
+  "theme": "sequoia",
+  "primaryColor": "#16a34a",
+  "lightColor": "#bbf7d0",
+  "darkColor": "#14532d",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Authentication",
+            "pages": [
+              "authentication/overview",
+              "authentication/api-keys",
+              "authentication/paseto-tokens"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/how-it-works",
+              "guides/self-hosting",
+              "guides/docker",
+              "guides/database"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Auth",
+            "pages": [
+              "api-reference/auth/login",
+              "api-reference/auth/logout"
+            ]
+          },
+          {
+            "group": "API Keys",
+            "pages": [
+              "api-reference/keys/generate"
+            ]
+          },
+          {
+            "group": "Student Data",
+            "pages": [
+              "api-reference/scraper/profile",
+              "api-reference/scraper/schedule",
+              "api-reference/scraper/result",
+              "api-reference/scraper/starpoint"
+            ]
+          },
+          {
+            "group": "Downloads",
+            "pages": [
+              "api-reference/download/exam-slip",
+              "api-reference/download/study-plan"
+            ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "api-reference/analytics",
+              "api-reference/health"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Proxy API for IIUM i-Ma'luum student portal with clean JSON responses",
+    "PASETO token-based authentication for stateless session management",
+    "Optional API key layer for double encryption and enhanced security",
+    "Concurrent web scraping using goroutines and worker pools for high performance",
+    "Student academic data endpoints: profile, schedule, results, and starpoints",
+    "PDF download endpoints for exam slips and study plans",
+    "Optional PostgreSQL analytics for aggregate usage statistics",
+    "gRPC integration with external authentication service"
+  ],
+  "publicApiSurface": [
+    "POST /api/auth/login",
+    "GET /api/auth/logout",
+    "POST /api/key/generate",
+    "GET /api/profile",
+    "GET /api/schedule",
+    "GET /api/result",
+    "GET /api/starpoint",
+    "GET /api/download/exam-slip",
+    "GET /api/download/study-plan",
+    "GET /api/analytics",
+    "GET /health"
+  ]
+}
