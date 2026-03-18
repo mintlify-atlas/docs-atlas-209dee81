@@ -15,12 +15,12 @@ Generates a new API key in the `gml_<timestamp>_<hex>` format. Pass this key in 
 Generated keys follow the pattern:
 
 ```
-gml_<unix-millisecond-timestamp>_<random-hex>
+gml_<unix-timestamp>_<64-char-hex>
 ```
 
-Example: `gml_1710000000000_a3f9c2b1d4e8`
+Example: `gml_1710000000_a3f9c2b1d4e8f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5`
 
-The prefix `gml_` identifies the key as a GoMa'luum API key. The timestamp records when the key was created. The trailing hex segment is a randomly generated value that makes each key unique.
+The prefix `gml_` identifies the key as a GoMa'luum API key. The Unix timestamp (in seconds) records when the key was created. The 64-character hex string encodes 32 bytes (256 bits) of cryptographically random data generated with `crypto/rand`.
 
 ## Request
 
@@ -101,7 +101,7 @@ func main() {
 
 ```json 200
 {
-  "api_key": "gml_1710000000000_a3f9c2b1d4e8",
+  "api_key": "gml_1710000000_a3f9c2b1d4e8f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5",
   "message": "API key generated successfully. Include this key in the 'x-gomaluum-key' header for enhanced security.",
   "created_at": "now"
 }

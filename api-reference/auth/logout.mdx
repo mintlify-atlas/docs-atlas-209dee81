@@ -32,12 +32,10 @@ Sends a logout request to IIUM CAS, invalidating the underlying session cookie t
 
 ## Error responses
 
-| Status | `message`                   | Cause                                                              |
-| ------ | --------------------------- | ------------------------------------------------------------------ |
-| `401`  | `Invalid token`             | The `Authorization` header is missing or the token is invalid.     |
-| `401`  | `Invalid PASETO issuer`     | The token was not issued by this server.                           |
-| `401`  | `Invalid API key`           | The `x-gomaluum-key` does not match the key used at login.         |
-| `500`  | `Failed to parse URL`       | Internal error constructing the CAS logout request.                |
+| Status | Body                   | Cause                                                              |
+| ------ | ---------------------- | ------------------------------------------------------------------ |
+| `401`  | `Unauthorized` (plain text) | The `Authorization` header is missing, malformed (not `Bearer ...`), or the token failed validation. |
+| `500`  | `{"message":"Failed to parse URL","status":500}` | Internal error constructing the CAS logout request.  |
 
 <RequestExample>
 

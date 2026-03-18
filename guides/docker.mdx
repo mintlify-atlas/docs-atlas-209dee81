@@ -135,21 +135,4 @@ docker compose logs -f gomaluum
   Replace all placeholder values (`<your-secret-key-hex>`, etc.) with real secrets before deploying. Do not commit secret values to version control.
 </Warning>
 
-## Using a pre-built image
 
-If you prefer not to build locally, the container image is published to the GitHub Container Registry:
-
-```bash
-docker pull ghcr.io/nrmnqdds/gomaluum:latest
-```
-
-Run it directly:
-
-```bash
-docker run -p 1323:1323 \
-  -e GRPC_SERVICE_URL=gas.quddus.my:50052 \
-  -e PASETO_SECRET_KEY=<your-secret-key-hex> \
-  -e PASETO_PUBLIC_KEY=<your-public-key-hex> \
-  -e ENCRYPTION_KEY=<your-32-byte-key> \
-  -d ghcr.io/nrmnqdds/gomaluum:latest
-```

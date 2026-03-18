@@ -117,6 +117,9 @@ In production (`-p`), inject variables via your process manager, container runti
 |----------|-------------|
 | `DATABASE_URL` | PostgreSQL connection string. If unset, analytics are disabled and all other endpoints work normally. |
 | `APP_ENV` | Runtime environment label (`development` or `production`). Used for logging context. |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API token used by the health check to verify Cloudflare connectivity. |
+| `KV_NAMESPACE_ID` | Cloudflare KV namespace ID. Required only if using Cloudflare KV features. |
+| `KV_USER_ID` | Cloudflare KV user ID. Required only if using Cloudflare KV features. |
 
 ## Generating PASETO keys
 

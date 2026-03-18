@@ -113,6 +113,7 @@ GoMa'luum does not enforce its own token expiry — it uses `NewParserWithoutExp
 The following endpoints do not require an `Authorization` header and are always accessible:
 
 - `POST /api/auth/login`
+- `POST /api/login` (backward-compatibility alias)
 - `POST /api/key/generate`
 - `GET /api/analytics`
 - `GET /health`
