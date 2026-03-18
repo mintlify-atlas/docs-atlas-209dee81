@@ -1,0 +1,138 @@
+---
+title: "How it works"
+description: "The full request lifecycle: authentication, token issuance, session refresh, and concurrent scraping."
+---
+
+GoMa'luum sits between your application and IIUM's i-Ma'luum portal. It handles IIUM's legacy CAS authentication, wraps the resulting session cookie in a PASETO token, and uses that token on every subsequent scraping request. The server itself stores no session state.
+
+## Authentication flow
+
+### Login
+
+When a client calls `POST /api/auth/login`, the following steps happen:
+
+1. **Credential forwarding** — GoMa'luum forwards the username and password to an external gRPC service (`GRPC_SERVICE_URL`). That service authenticates against IIUM's CAS endpoint at `https://cas.iium.edu.my:8448/cas/login`.
+
+2. **Session cookie returned** — On success, the gRPC service returns the `MOD_AUTH_CAS` session cookie issued by IIUM CAS, along with the username and password.
+
+3. **Optional API key encryption** — If the client provided an `x-gomaluum-key` header, the cookie, username, and password are each encrypted using AES-256-GCM keyed on that API key before being embedded in the token. If no key is provided, a default key is used. This is the first encryption layer.
+
+4. **PASETO v4 token signed** — The (encrypted) cookie, username, and base64-encoded password are set as claims on a PASETO v4 token and signed with the server's `PASETO_SECRET_KEY`. This is the second encryption layer. The signed token is returned to the client.
+
+```
+Client → POST /api/auth/login
+          {username, password}
+          [x-gomaluum-key: <optional>]
+
+  GoMa'luum → gRPC service → IIUM CAS
+                              ↓
+                         MOD_AUTH_CAS cookie
+
+  GoMa'luum: encrypt(cookie, apiKey) → PASETO sign → token
+
+← {token, username}
+```
+
+### Authenticated requests
+
+For endpoints that require authentication (`/api/profile`, `/api/schedule`, `/api/result`, etc.), the client sends the PASETO token in the `Authorization: Bearer <token>` header along with the same `x-gomaluum-key` used at login.
+
+The `PasetoAuthenticator` middleware:
+
+1. Parses and verifies the PASETO v4 signature using `PASETO_PUBLIC_KEY`.
+2. Checks the `iss` claim equals `"gomaluum"`.
+3. Decrypts the embedded cookie, username, and password using the provided API key.
+4. Checks whether the token has expired (expiry is currently set to the moment of issuance, so tokens are immediately expired and the session is always refreshed).
+
+### Automatic session refresh
+
+Because tokens expire immediately on issuance, every authenticated request triggers a transparent session refresh:
+
+1. GoMa'luum calls `gRPC.Login(username, password)` to obtain a fresh `MOD_AUTH_CAS` cookie from IIUM.
+2. The new cookie is placed in the request context for the downstream handler.
+3. A `TokenManager` (backed by `golang.org/x/sync/singleflight`) deduplicates concurrent refresh calls for the same username — only one gRPC call is made even if multiple requests arrive simultaneously.
+
+This refresh also triggers an async analytics write: `go s.UpdateAnalytics(username)`.
+
+## Scraping flow
+
+Once the middleware has deposited a valid `MOD_AUTH_CAS` cookie into the request context, the handler uses [Colly](https://github.com/gocolly/colly) to scrape i-Ma'luum pages over HTTPS, setting `Cookie: MOD_AUTH_CAS=<value>` on every request.
+
+### Concurrent worker pool for schedule and result
+
+Both `GET /api/schedule` and `GET /api/result` need to scrape one page per academic semester. Rather than fetching semesters sequentially, GoMa'luum uses a goroutine worker pool:
+
+1. **Discover sessions** — A single Colly request to the schedule or result page scrapes the dropdown menu to collect all available session query strings (e.g., `?ses=2023/2024&sem=1`) and their human-readable names.
+2. **Filter** — Placeholder sessions (`?ses=1111/1111&sem=1`, `?ses=0000/0000&sem=0`) are removed.
+3. **Dispatch jobs** — Each session is sent as a job to a buffered `jobs` channel.
+4. **Worker goroutines** — Up to 5 workers pull from the `jobs` channel simultaneously. Each worker creates an independent Colly collector, scrapes the target URL, parses the HTML table, and sends a `scheduleResult` / `resultWorkerResult` back on a `results` channel.
+5. **Collect and sort** — The handler collects all results, then sorts them by session name so the most recent semester appears first.
+
+```go
+const maxWorkers = 5
+
+jobs    := make(chan scheduleJob, len(queries))
+results := make(chan scheduleResult, len(queries))
+
+for range maxWorkers {
+    go s.scheduleWorker(jobs, results, cookie)
+}
+```
+
+Memory pressure is reduced by `sync.Pool` object pools that recycle `ScheduleSubject`, `WeekTime` slice, and string slice allocations across worker goroutines.
+
+## Token structure
+
+A decoded PASETO token payload looks like this:
+
+```json
+{
+  "iss": "gomaluum",
+  "iat": "2024-01-01T00:00:00Z",
+  "nbf": "2024-01-01T00:00:00Z",
+  "exp": "2024-01-01T00:00:00Z",
+  "imaluumCookie": "<AES-GCM encrypted MOD_AUTH_CAS value>",
+  "username": "<AES-GCM encrypted matric number>",
+  "password": "<AES-GCM encrypted base64 password>"
+}
+```
+
+The encrypted values are decipherable only with the same API key that was supplied at login.
+
+## Optional analytics
+
+When `DATABASE_URL` is set, GoMa'luum writes an upsert to the `analytics` table every time a token is decoded. The write is fire-and-forget (`go s.UpdateAnalytics(username)`) so it does not block the request path. The table stores only the matriculation number — batch year and academic level are computed columns derived from the matric number format, not stored separately.
+
+See [Database](/guides/database) for the full schema.
+
+## Architecture summary
+
+```
+┌─────────────────────────────────────────────────┐
+│                    Client                       │
+└────────────────┬──────────────────┬─────────────┘
+                 │ POST /auth/login │ GET /schedule, /result, ...
+                 ▼                  ▼
+┌─────────────────────────────────────────────────┐
+│              GoMa'luum (HTTP + chi)              │
+│                                                 │
+│  PasetoAuthenticator middleware                 │
+│    └─ verify sig → decrypt → refresh session   │
+│                                                 │
+│  ScheduleHandler / ResultHandler                │
+│    └─ worker pool (up to 5 goroutines)          │
+│         └─ Colly scraper per session            │
+└──────────┬──────────────────────────────────────┘
+           │ gRPC
+           ▼
+┌──────────────────┐     ┌─────────────────────────┐
+│  Auth gRPC svc   │────▶│  IIUM CAS               │
+│  (gas.quddus.my) │     │  cas.iium.edu.my:8448   │
+└──────────────────┘     └─────────────────────────┘
+           │ optional
+           ▼
+┌──────────────────┐
+│   PostgreSQL     │
+│   (analytics)    │
+└──────────────────┘
+```

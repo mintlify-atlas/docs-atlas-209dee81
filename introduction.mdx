@@ -1,0 +1,77 @@
+---
+title: "Introduction"
+description: "GoMa'luum — a stateless proxy API for IIUM's i-Ma'luum student portal"
+---
+
+<Note>
+  This project is **not** associated with the official i-Ma'luum or IIUM. It is an unofficial, community-built API wrapper.
+</Note>
+
+## What is GoMa'luum?
+
+GoMa'luum is an open-source proxy API that wraps [IIUM's i-Ma'luum](https://imaluum.iium.edu.my) student portal. It scrapes student academic data and returns it as clean, structured JSON — enabling developers to build applications on top of i-Ma'luum without dealing with HTML scraping, session management, or IIUM's legacy web interface.
+
+The API is stateless: your IIUM session cookie is wrapped in a [PASETO](https://paseto.io) token and returned to you. Every subsequent request you make carries that token, so the server holds no session state.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get a token and make your first API call in under 5 minutes
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/auth/login">
+    Browse every endpoint with request/response examples
+  </Card>
+  <Card title="How it works" icon="diagram-project" href="/guides/how-it-works">
+    Understand the scraping and token flow under the hood
+  </Card>
+  <Card title="Self-hosting" icon="server" href="/guides/self-hosting">
+    Run your own GoMa'luum instance with Go or Docker
+  </Card>
+</CardGroup>
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Stateless authentication" icon="lock">
+    PASETO v4 tokens wrap your IIUM session cookie. No server-side sessions. Works across microservices.
+  </Card>
+  <Card title="API key encryption" icon="key">
+    Optional double-encryption layer: data is encrypted with your API key before PASETO wrapping.
+  </Card>
+  <Card title="Concurrent scraping" icon="bolt">
+    Schedule and result data are fetched across all semesters concurrently using goroutine worker pools.
+  </Card>
+  <Card title="PDF downloads" icon="file-pdf">
+    Stream exam slips and study plans directly as PDF bytes, authenticated via your token.
+  </Card>
+  <Card title="Analytics" icon="chart-bar">
+    Optional PostgreSQL-backed aggregate analytics tracking usage by academic level and batch year.
+  </Card>
+  <Card title="gRPC auth backend" icon="network-wired">
+    Authentication is delegated to an external gRPC service, keeping credential handling decoupled.
+  </Card>
+</CardGroup>
+
+## Available endpoints
+
+| Method | Path | Description | Auth required |
+|--------|------|-------------|---------------|
+| `POST` | `/api/auth/login` | Login and receive a PASETO token | No |
+| `GET` | `/api/auth/logout` | Invalidate your IIUM session | Yes |
+| `POST` | `/api/key/generate` | Generate an API key | No |
+| `GET` | `/api/profile` | Fetch student profile data | Yes |
+| `GET` | `/api/schedule` | Fetch class schedule for all semesters | Yes |
+| `GET` | `/api/result` | Fetch academic results for all semesters | Yes |
+| `GET` | `/api/starpoint` | Fetch co-curricular starpoint records | Yes |
+| `GET` | `/api/download/exam-slip` | Download exam slip PDF | Yes |
+| `GET` | `/api/download/study-plan` | Download study plan PDF | Yes |
+| `GET` | `/api/analytics` | Aggregate usage analytics | No |
+| `GET` | `/health` | Health check | No |
+
+## Projects using GoMa'luum
+
+- [Simplified i-Ma'luum](https://imaluum.quddus.my) — A cleaner interface for IIUM students
+- [ProReg](https://proreg.app) — IIUM course registration assistant
+
+## Live API reference
+
+The interactive Swagger/Scalar API reference is available at [api.quddus.my/api/reference](https://api.quddus.my/api/reference).

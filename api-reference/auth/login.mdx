@@ -1,0 +1,161 @@
+---
+title: 'Login'
+description: 'Authenticate with IIUM CAS and receive a PASETO token for use in subsequent requests.'
+api: 'POST https://api.quddus.my/api/auth/login'
+---
+
+Authenticates your IIUM credentials against the IIUM CAS (Central Authentication Service) via a gRPC backend. On success, returns a signed PASETO v4 token that you must include as a `Bearer` token in the `Authorization` header for all protected endpoints.
+
+<Note>
+  The token encodes your CAS session cookie and is validated on every authenticated request. The underlying CAS session remains active until you call [logout](/api-reference/auth/logout).
+</Note>
+
+## Request headers
+
+<ParamField header="Content-Type" type="string" required>
+  Must be `application/json`.
+</ParamField>
+
+<ParamField header="x-gomaluum-key" type="string">
+  An optional API key generated via [POST /api/key/generate](/api-reference/keys/generate). When supplied at login, the same key must be provided on every subsequent request made with the resulting token. If omitted, the server uses a default internal key.
+</ParamField>
+
+## Request body
+
+<ParamField body="username" type="string" required>
+  Your IIUM matriculation number (e.g. `2110xxxxx`).
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Your IIUM CAS portal password.
+</ParamField>
+
+## Response
+
+<ResponseField name="message" type="string">
+  Human-readable confirmation message.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  <Expandable title="properties" defaultOpen>
+    <ResponseField name="token" type="string">
+      A signed PASETO v4 public token (`v4.public...`). Include this value as `Bearer <token>` in the `Authorization` header on all protected endpoints.
+    </ResponseField>
+    <ResponseField name="username" type="string">
+      The authenticated IIUM matriculation number.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Error responses
+
+| Status | `message`                        | Cause                                                   |
+| ------ | -------------------------------- | ------------------------------------------------------- |
+| `400`  | `Invalid request body`           | Request body is missing, malformed, or not valid JSON.  |
+| `401`  | `Username or password is incorrect` | CAS authentication failed for the supplied credentials. |
+| `401`  | `Invalid API key`                | The `x-gomaluum-key` header value is not a valid key.   |
+| `500`  | `Failed to decode PASETO token`  | Internal error generating the PASETO token.             |
+
+<RequestExample>
+
+```bash cURL
+curl --request POST \
+  --url https://api.quddus.my/api/auth/login \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "username": "2110xxxxx",
+    "password": "your-cas-password"
+  }'
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.quddus.my/api/auth/login', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    username: '2110xxxxx',
+    password: 'your-cas-password',
+  }),
+});
+
+const data = await response.json();
+const token = data.data.token;
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    'https://api.quddus.my/api/auth/login',
+    json={
+        'username': '2110xxxxx',
+        'password': 'your-cas-password',
+    },
+)
+
+token = response.json()['data']['token']
+```
+
+```go Go
+package main
+
+import (
+    "bytes"
+    "encoding/json"
+    "fmt"
+    "net/http"
+)
+
+func main() {
+    body, _ := json.Marshal(map[string]string{
+        "username": "2110xxxxx",
+        "password": "your-cas-password",
+    })
+
+    resp, err := http.Post(
+        "https://api.quddus.my/api/auth/login",
+        "application/json",
+        bytes.NewBuffer(body),
+    )
+    if err != nil {
+        panic(err)
+    }
+    defer resp.Body.Close()
+
+    var result map[string]any
+    json.NewDecoder(resp.Body).Decode(&result)
+    fmt.Println(result["data"].(map[string]any)["token"])
+}
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json 200
+{
+  "message": "Login successful! Please use the token in the Authorization header for future requests.",
+  "data": {
+    "token": "v4.public.eyJhbGciOiJFZERTQSJ9...",
+    "username": "2110xxxxx"
+  }
+}
+```
+
+```json 400
+{
+  "message": "Invalid request body",
+  "status": 400
+}
+```
+
+```json 401
+{
+  "message": "Username or password is incorrect",
+  "status": 401
+}
+```
+
+</ResponseExample>

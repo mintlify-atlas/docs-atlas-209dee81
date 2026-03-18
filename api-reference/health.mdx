@@ -1,0 +1,97 @@
+---
+title: 'Health check'
+description: 'Verify that the API and its upstream dependencies are operational.'
+---
+
+## Request
+
+**`GET https://api.quddus.my/health`**
+
+Returns the health status of the API and each of its upstream dependencies. No authentication is required.
+
+The response is computed on each request (with a 1-second result cache). If any component is unhealthy, the overall status is reported as `down` and the HTTP status code is `503`.
+
+## Checks performed
+
+| Component | Description | Timeout |
+|---|---|---|
+| `database` | Pings the configured PostgreSQL database | 2 s |
+| `Cloudflare` | Validates the configured Cloudflare API token | 10 s |
+| `i-Ma'luum Official Website` | HTTP GET to `https://imaluum.iium.edu.my` | 10 s |
+
+<Note>
+  The `database` check is only meaningful when `DATABASE_URL` is configured. If the database is not set up, that component will report as unhealthy.
+</Note>
+
+## Response
+
+`Content-Type: application/json`
+
+| Status | HTTP code | Meaning |
+|---|---|---|
+| `up` | `200` | All checks passed |
+| `down` | `503` | One or more checks failed |
+
+### Example response — healthy
+
+```json 200
+{
+  "status": "up",
+  "timestamp": "2024-11-01T08:00:00Z",
+  "details": {
+    "database": {
+      "status": "up",
+      "timestamp": "2024-11-01T08:00:00Z"
+    },
+    "Cloudflare": {
+      "status": "up",
+      "timestamp": "2024-11-01T08:00:00Z"
+    },
+    "i-Ma'luum Official Website": {
+      "status": "up",
+      "timestamp": "2024-11-01T08:00:00Z"
+    }
+  }
+}
+```
+
+### Example response — degraded
+
+```json 503
+{
+  "status": "down",
+  "timestamp": "2024-11-01T08:00:00Z",
+  "details": {
+    "database": {
+      "status": "up",
+      "timestamp": "2024-11-01T08:00:00Z"
+    },
+    "Cloudflare": {
+      "status": "up",
+      "timestamp": "2024-11-01T08:00:00Z"
+    },
+    "i-Ma'luum Official Website": {
+      "status": "down",
+      "timestamp": "2024-11-01T08:00:00Z",
+      "error": "connection refused"
+    }
+  }
+}
+```
+
+## Example
+
+<CodeGroup>
+
+```bash cURL
+curl --request GET \
+  --url https://api.quddus.my/health
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.quddus.my/health');
+const data = await response.json();
+console.log(data.status); // "up" or "down"
+```
+
+</CodeGroup>

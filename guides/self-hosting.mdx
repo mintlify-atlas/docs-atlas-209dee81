@@ -1,0 +1,165 @@
+---
+title: "Self-hosting"
+description: "Run your own GoMa'luum instance from source using Go 1.23 or later."
+---
+
+<Note>
+  GoMa'luum requires an external gRPC authentication service to handle IIUM CAS login. You must have access to a running gRPC service that implements the `Auth` proto before starting the server.
+</Note>
+
+## Prerequisites
+
+- Go 1.23 or higher
+- Git
+- A running gRPC authentication service (default: `gas.quddus.my:50052`)
+- PostgreSQL (optional — only needed for analytics)
+
+## Setup
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/nrmnqdds/gomaluum
+    cd gomaluum
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    ```bash
+    go mod tidy
+    ```
+  </Step>
+
+  <Step title="Configure environment variables">
+    Copy the example file and edit it:
+
+    ```bash
+    cp .env.example .env
+    ```
+
+    Open `.env` and set the required values:
+
+    ```bash
+    APP_ENV=development
+
+    PORT=1323
+
+    # PASETO v4 asymmetric key pair (hex-encoded)
+    PASETO_SECRET_KEY=<your-private-key-hex>
+    PASETO_PUBLIC_KEY=<your-public-key-hex>
+
+    # AES-256-GCM key for encrypting token payload (32 bytes)
+    ENCRYPTION_KEY=<your-32-byte-encryption-key>
+
+    # URL of the external gRPC authentication service
+    GRPC_SERVICE_URL=gas.quddus.my:50052
+
+    # Optional: PostgreSQL connection string for analytics
+    DATABASE_URL=
+    ```
+
+    See the [environment variable reference](#environment-variables) below for details on each value.
+  </Step>
+
+  <Step title="Run the server">
+    <CodeGroup>
+
+    ```bash Development (with live reload)
+    air
+    ```
+
+    ```bash Development (without live reload)
+    go run main.go -d
+    ```
+
+    ```bash Production
+    go run main.go -p
+    ```
+
+    </CodeGroup>
+
+    The server listens on the port defined by `PORT` (default `1323`). You can verify it is running:
+
+    ```bash
+    curl http://localhost:1323/health
+    ```
+  </Step>
+</Steps>
+
+## Run flags
+
+The binary requires exactly one mode flag:
+
+| Flag | Mode | Effect |
+|------|------|--------|
+| `-d` | Development | Loads `.env` from the working directory using `godotenv` |
+| `-p` | Production | Skips `.env` loading; reads environment variables from the process environment |
+
+Passing both flags or neither flag causes the server to exit with an error.
+
+In production (`-p`), inject variables via your process manager, container runtime, or secrets manager — not a `.env` file.
+
+## Environment variables
+
+### Required
+
+| Variable | Description |
+|----------|-------------|
+| `PORT` | Port the HTTP server listens on. Default in `.env.example` is `1323`. |
+| `PASETO_SECRET_KEY` | Hex-encoded Ed25519 private key used to sign PASETO v4 tokens. |
+| `PASETO_PUBLIC_KEY` | Hex-encoded Ed25519 public key used to verify PASETO v4 tokens. |
+| `ENCRYPTION_KEY` | 32-byte key used for AES-256-GCM encryption of token payload fields. |
+| `GRPC_SERVICE_URL` | Address of the external gRPC auth service, e.g. `gas.quddus.my:50052` or `localhost:50051`. |
+
+### Optional
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection string. If unset, analytics are disabled and all other endpoints work normally. |
+| `APP_ENV` | Runtime environment label (`development` or `production`). Used for logging context. |
+
+## Generating PASETO keys
+
+You can generate a PASETO v4 key pair with the `go-paseto` library:
+
+```go
+package main
+
+import (
+    "fmt"
+    "aidanwoods.dev/go-paseto"
+)
+
+func main() {
+    secretKey := paseto.NewV4AsymmetricSecretKey()
+    fmt.Println("PASETO_SECRET_KEY=", secretKey.ExportHex())
+    fmt.Println("PASETO_PUBLIC_KEY=", secretKey.Public().ExportHex())
+}
+```
+
+## Live reload with air
+
+`air` watches for file changes and restarts the server automatically. Install it once:
+
+```bash
+go install github.com/air-verse/air@latest
+```
+
+Then run `air` from the project root. The `Makefile` provides a `watch` target that installs `air` automatically if it is not present:
+
+```bash
+make watch
+```
+
+## Building a binary
+
+```bash
+go build -o ./tmp/gomaluum ./main.go
+./tmp/gomaluum -p
+```
+
+Or use the Makefile:
+
+```bash
+make build
+```

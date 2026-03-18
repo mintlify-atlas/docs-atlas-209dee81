@@ -1,0 +1,155 @@
+---
+title: "Docker"
+description: "Build and run GoMa'luum in a container, with or without a PostgreSQL database."
+---
+
+The official `Dockerfile` uses a three-stage build: a Go build stage, a certificate stage that fetches CA bundles and `curl`, and a minimal `distroless/static-debian11` final image. The binary runs as `nonroot:nonroot`.
+
+## Build the image
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/nrmnqdds/gomaluum
+    cd gomaluum
+    ```
+  </Step>
+
+  <Step title="Build the Docker image">
+    ```bash
+    docker build -t gomaluum .
+    ```
+
+    The build compiles the binary with `CGO_ENABLED=0` for a fully static executable:
+
+    ```dockerfile
+    RUN CGO_ENABLED=0 GOOS=linux go build --ldflags="-checklinkname=0" -o /app/gomaluum
+    ```
+  </Step>
+
+  <Step title="Run the container">
+    <CodeGroup>
+
+    ```bash Without database
+    docker run -p 1323:1323 \
+      -e GRPC_SERVICE_URL=gas.quddus.my:50052 \
+      -e PASETO_SECRET_KEY=<your-secret-key-hex> \
+      -e PASETO_PUBLIC_KEY=<your-public-key-hex> \
+      -e ENCRYPTION_KEY=<your-32-byte-key> \
+      -d gomaluum
+    ```
+
+    ```bash With database (analytics enabled)
+    docker run -p 1323:1323 \
+      -e GRPC_SERVICE_URL=gas.quddus.my:50052 \
+      -e PASETO_SECRET_KEY=<your-secret-key-hex> \
+      -e PASETO_PUBLIC_KEY=<your-public-key-hex> \
+      -e ENCRYPTION_KEY=<your-32-byte-key> \
+      -e DATABASE_URL=postgresql://user:pass@host:5432/gomaluum \
+      -d gomaluum
+    ```
+
+    </CodeGroup>
+
+    The container exposes port `1323` and defaults to `APP_ENV=production` and `TZ=Asia/Kuala_Lumpur`.
+  </Step>
+
+  <Step title="Verify the container is healthy">
+    The `Dockerfile` includes a health check that polls `/health` every 5 minutes:
+
+    ```bash
+    docker ps          # check STATUS column for (healthy)
+    curl http://localhost:1323/health
+    ```
+  </Step>
+</Steps>
+
+## Environment variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GRPC_SERVICE_URL` | Yes | Address of the external gRPC auth service, e.g. `gas.quddus.my:50052`. |
+| `PASETO_SECRET_KEY` | Yes | Hex-encoded Ed25519 private key for signing PASETO tokens. |
+| `PASETO_PUBLIC_KEY` | Yes | Hex-encoded Ed25519 public key for verifying PASETO tokens. |
+| `ENCRYPTION_KEY` | Yes | 32-byte AES-256-GCM key for encrypting token payload fields. |
+| `DATABASE_URL` | No | PostgreSQL connection string. Analytics are disabled if unset. |
+| `PORT` | No | Port to listen on. Defaults to `1323`. |
+| `APP_ENV` | No | Set automatically to `production` by the Dockerfile. |
+| `TZ` | No | Timezone. Defaults to `Asia/Kuala_Lumpur`. |
+
+## Docker Compose with PostgreSQL
+
+The following `docker-compose.yml` runs GoMa'luum alongside a PostgreSQL 15 instance. The schema is created automatically by the server on startup — no separate migration step is needed.
+
+```yaml
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: gomaluum
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  gomaluum:
+    build: .
+    ports:
+      - "1323:1323"
+    environment:
+      GRPC_SERVICE_URL: gas.quddus.my:50052
+      PASETO_SECRET_KEY: <your-secret-key-hex>
+      PASETO_PUBLIC_KEY: <your-public-key-hex>
+      ENCRYPTION_KEY: <your-32-byte-key>
+      DATABASE_URL: postgresql://postgres:password@postgres:5432/gomaluum
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+```
+
+Start the stack:
+
+```bash
+docker compose up -d
+```
+
+Check logs:
+
+```bash
+docker compose logs -f gomaluum
+```
+
+<Warning>
+  Replace all placeholder values (`<your-secret-key-hex>`, etc.) with real secrets before deploying. Do not commit secret values to version control.
+</Warning>
+
+## Using a pre-built image
+
+If you prefer not to build locally, the container image is published to the GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/nrmnqdds/gomaluum:latest
+```
+
+Run it directly:
+
+```bash
+docker run -p 1323:1323 \
+  -e GRPC_SERVICE_URL=gas.quddus.my:50052 \
+  -e PASETO_SECRET_KEY=<your-secret-key-hex> \
+  -e PASETO_PUBLIC_KEY=<your-public-key-hex> \
+  -e ENCRYPTION_KEY=<your-32-byte-key> \
+  -d ghcr.io/nrmnqdds/gomaluum:latest
+```

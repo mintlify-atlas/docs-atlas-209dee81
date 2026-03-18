@@ -1,0 +1,107 @@
+---
+title: 'Get analytics summary'
+description: 'Return aggregate usage statistics grouped by academic level and batch year.'
+---
+
+<Warning>
+  This endpoint requires the server to be configured with a `DATABASE_URL` environment variable. If the database is not available, the endpoint returns a `500` error.
+</Warning>
+
+## Request
+
+**`GET https://api.quddus.my/api/analytics`**
+
+Returns aggregate usage statistics derived from the login activity recorded by the server. Data is grouped by academic level (`DEGREE` or `CFS`) and then by batch year within each level.
+
+No authentication is required.
+
+## How data is collected
+
+Each time a student logs in, their matric number is recorded (or their timestamp is updated if they have logged in before). The database derives two computed columns automatically:
+
+- **Batch year** — taken from the first two characters of the matric number plus 2000. For example, a matric number starting with `22` maps to batch year `2022`.
+- **Academic level** — derived from the length of the matric number. A 7-character matric number is `DEGREE`; a 6-character matric number is `CFS`.
+
+Only one row is stored per student. Repeated logins update the timestamp rather than creating duplicates.
+
+## Response
+
+`Content-Type: application/json`
+
+<ResponseField name="message" type="string">
+  Human-readable status message.
+</ResponseField>
+
+<ResponseField name="data" type="LevelSummary[]">
+  Array of objects, one per academic level. Batches within each level are sorted by year descending.
+
+  <Expandable title="LevelSummary properties">
+    <ResponseField name="level" type="string">
+      Academic level. One of `DEGREE` or `CFS`.
+    </ResponseField>
+
+    <ResponseField name="students" type="StudentBatch[]">
+      Usage counts broken down by batch year, sorted descending.
+
+      <Expandable title="StudentBatch properties">
+        <ResponseField name="batch" type="number">
+          Four-digit batch year (e.g. `2022`).
+        </ResponseField>
+
+        <ResponseField name="count" type="number">
+          Number of distinct students in this batch who have used the API.
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example response
+
+```json 200
+{
+  "message": "Successfully fetched analytics summary",
+  "data": [
+    {
+      "level": "DEGREE",
+      "students": [
+        { "batch": 2023, "count": 148 },
+        { "batch": 2022, "count": 312 },
+        { "batch": 2021, "count": 209 }
+      ]
+    },
+    {
+      "level": "CFS",
+      "students": [
+        { "batch": 2024, "count": 67 },
+        { "batch": 2023, "count": 95 }
+      ]
+    }
+  ]
+}
+```
+
+## Error responses
+
+| Status | Message | Cause |
+|---|---|---|
+| `500` | `Failed to query database` | `DATABASE_URL` is not configured, or the database is unreachable |
+| `500` | `Failed to map database rows` | Unexpected data type returned from the database query |
+| `500` | `Failed to encode response` | Internal JSON serialisation error |
+
+## Example
+
+<CodeGroup>
+
+```bash cURL
+curl --request GET \
+  --url https://api.quddus.my/api/analytics
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.quddus.my/api/analytics');
+const data = await response.json();
+console.log(data);
+```
+
+</CodeGroup>

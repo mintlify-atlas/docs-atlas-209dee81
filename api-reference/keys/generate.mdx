@@ -1,0 +1,117 @@
+---
+title: 'Generate API key'
+description: 'Generate a timestamped API key for use as an additional security layer on login and authenticated requests.'
+api: 'POST https://api.quddus.my/api/key/generate'
+---
+
+Generates a new API key in the `gml_<timestamp>_<hex>` format. Pass this key in the `x-gomaluum-key` header when calling [POST /api/auth/login](/api-reference/auth/login). The same key must then be included on every subsequent authenticated request made with the resulting token.
+
+<Note>
+  The `x-gomaluum-key` header is optional. If you do not supply one, the server falls back to a default internal key. Generating your own key provides an additional, caller-controlled security layer.
+</Note>
+
+## API key format
+
+Generated keys follow the pattern:
+
+```
+gml_<unix-millisecond-timestamp>_<random-hex>
+```
+
+Example: `gml_1710000000000_a3f9c2b1d4e8`
+
+The prefix `gml_` identifies the key as a GoMa'luum API key. The timestamp records when the key was created. The trailing hex segment is a randomly generated value that makes each key unique.
+
+## Request
+
+No request body or authentication is required.
+
+## Response
+
+<ResponseField name="api_key" type="string">
+  The generated API key in `gml_<timestamp>_<hex>` format. Store this value securely — it is not persisted server-side.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable instructions on how to use the key.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  Timestamp indicating when the key was generated.
+</ResponseField>
+
+## Error responses
+
+| Status | `message`                    | Cause                                         |
+| ------ | ---------------------------- | --------------------------------------------- |
+| `500`  | `Failed to generate API key` | Internal error during key generation.         |
+
+<RequestExample>
+
+```bash cURL
+curl --request POST \
+  --url https://api.quddus.my/api/key/generate
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.quddus.my/api/key/generate', {
+  method: 'POST',
+});
+
+const data = await response.json();
+const apiKey = data.api_key;
+```
+
+```python Python
+import requests
+
+response = requests.post('https://api.quddus.my/api/key/generate')
+api_key = response.json()['api_key']
+```
+
+```go Go
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "net/http"
+)
+
+func main() {
+    resp, err := http.Post(
+        "https://api.quddus.my/api/key/generate",
+        "application/json",
+        nil,
+    )
+    if err != nil {
+        panic(err)
+    }
+    defer resp.Body.Close()
+
+    var result map[string]any
+    json.NewDecoder(resp.Body).Decode(&result)
+    fmt.Println(result["api_key"])
+}
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json 200
+{
+  "api_key": "gml_1710000000000_a3f9c2b1d4e8",
+  "message": "API key generated successfully. Include this key in the 'x-gomaluum-key' header for enhanced security.",
+  "created_at": "now"
+}
+```
+
+```json 500
+{
+  "message": "Failed to generate API key",
+  "status": 500
+}
+```
+
+</ResponseExample>

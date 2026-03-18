@@ -1,0 +1,260 @@
+---
+title: "Database"
+description: "Optional PostgreSQL analytics database: schema, configuration, connection pooling, and migration from SQLite/LibSQL."
+---
+
+<Note>
+  The database is entirely optional. All core endpoints — login, profile, schedule, result, starpoint, exam slip, and study plan — work without a database. Only the `/api/analytics` endpoint requires a database connection.
+</Note>
+
+## Without a database
+
+If `DATABASE_URL` is not set, GoMa'luum starts normally and logs that it is running without analytics. The behavior of each feature is:
+
+| Feature | Without database | With database |
+|---------|-----------------|---------------|
+| Login, logout | Works | Works |
+| Profile, schedule, result, starpoint | Works | Works |
+| Exam slip, study plan downloads | Works | Works |
+| `GET /api/analytics` | Returns an error | Returns aggregate data |
+| Analytics data collection | Disabled | Collected on every authenticated request |
+
+## Setting the DATABASE_URL
+
+Set the `DATABASE_URL` environment variable to a standard PostgreSQL connection string.
+
+**Format:**
+
+```
+postgresql://[user[:password]@][host][:port][/dbname][?param=value&...]
+```
+
+**Examples:**
+
+```bash
+# Local development
+DATABASE_URL=postgresql://username:password@localhost:5432/gomaluum
+
+# Production with SSL
+DATABASE_URL=postgresql://user:pass@prod-db.example.com:5432/gomaluum?sslmode=require
+
+# With connection pool settings
+DATABASE_URL=postgresql://user:pass@localhost:5432/gomaluum?pool_max_conns=10&pool_min_conns=2
+```
+
+## Schema
+
+GoMa'luum creates the analytics table and its indexes automatically on startup. You do not need to run any migration scripts manually.
+
+The schema that is applied:
+
+```sql
+CREATE TABLE IF NOT EXISTS analytics (
+    matric_no VARCHAR(10) NOT NULL PRIMARY KEY,
+    batch INTEGER GENERATED ALWAYS AS (
+        CAST(SUBSTRING(matric_no, 1, 2) AS INTEGER) + 2000
+    ) STORED,
+    level VARCHAR(10) GENERATED ALWAYS AS (
+        CASE LENGTH(matric_no)
+            WHEN 7 THEN 'DEGREE'
+            WHEN 6 THEN 'CFS'
+        END
+    ) STORED,
+    timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_batch ON analytics(batch);
+CREATE INDEX IF NOT EXISTS idx_level ON analytics(level);
+CREATE INDEX IF NOT EXISTS idx_batch_level ON analytics(batch, level);
+```
+
+**Column notes:**
+
+- `matric_no` — The student's matriculation number, used as the primary key. An upsert prevents duplicate rows.
+- `batch` — Generated column. The first two digits of the matric number plus 2000 gives the intake year (e.g., `24` → `2024`).
+- `level` — Generated column. A 7-character matric number indicates a degree student; 6 characters indicates a CFS (Centre for Foundation Studies) student.
+- `timestamp` — Updated on each login to track when the student last used the API.
+
+## Local development setup
+
+### Using Docker Compose
+
+The quickest way to run PostgreSQL locally is with Docker:
+
+```yaml
+version: '3.8'
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: gomaluum
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
+```
+
+Then set in your `.env`:
+
+```bash
+DATABASE_URL=postgresql://postgres:password@localhost:5432/gomaluum
+```
+
+### Manual setup
+
+1. Install PostgreSQL and start the service.
+2. Create the database:
+   ```sql
+   CREATE DATABASE gomaluum;
+   ```
+3. Set the environment variable:
+   ```bash
+   export DATABASE_URL=postgresql://username:password@localhost:5432/gomaluum
+   ```
+4. Start GoMa'luum. The schema is created automatically.
+
+## Production considerations
+
+### SSL
+
+Always enforce SSL in production:
+
+```bash
+DATABASE_URL=postgresql://user:pass@host:5432/gomaluum?sslmode=require
+```
+
+For mutual TLS (client certificates), append `sslcert`, `sslkey`, and `sslrootcert` parameters.
+
+### Connection pooling
+
+Tune pool parameters in the connection string:
+
+| Parameter | Description | Recommended starting value |
+|-----------|-------------|----------------------------|
+| `pool_max_conns` | Maximum open connections | `10` |
+| `pool_min_conns` | Minimum idle connections | `2` |
+| `pool_max_conn_lifetime` | Maximum connection age | `1h` |
+
+```bash
+DATABASE_URL=postgresql://user:pass@host:5432/gomaluum?sslmode=require&pool_max_conns=10&pool_min_conns=2
+```
+
+### Monitoring
+
+Monitor your PostgreSQL instance for:
+
+- Active connection count (`pg_stat_activity`)
+- Slow queries (set `log_min_duration_statement = 1000` to log queries over 1 second)
+- Index hit rate (`pg_stat_user_indexes`)
+- Disk space growth on the `analytics` table
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection refused">
+    PostgreSQL is not running or is not reachable on the specified host and port.
+
+    - Verify PostgreSQL is running: `pg_isready -h localhost -p 5432`
+    - Check that the `host` and `port` in `DATABASE_URL` match the PostgreSQL configuration.
+    - If using Docker, ensure the container is on the same network as GoMa'luum.
+  </Accordion>
+
+  <Accordion title="Authentication failed">
+    The username or password in `DATABASE_URL` is incorrect.
+
+    - Verify credentials by connecting directly: `psql postgresql://user:pass@host:5432/gomaluum`
+    - Check `pg_hba.conf` to confirm the authentication method allows password login from the GoMa'luum host.
+  </Accordion>
+
+  <Accordion title="Database does not exist">
+    The database named in `DATABASE_URL` has not been created.
+
+    ```sql
+    CREATE DATABASE gomaluum;
+    ```
+  </Accordion>
+
+  <Accordion title="SSL errors">
+    The server requires SSL but the client is not configured to use it, or the certificate is not trusted.
+
+    - Add `?sslmode=require` to `DATABASE_URL`.
+    - If using a self-signed certificate, add `?sslmode=verify-ca&sslrootcert=/path/to/ca.crt`.
+    - To disable SSL verification during local development only: `?sslmode=disable`.
+  </Accordion>
+
+  <Accordion title="Failed to create schema on startup">
+    GoMa'luum logs `Failed to create database schema` and disables analytics.
+
+    - Check that the database user has `CREATE TABLE` and `CREATE INDEX` privileges.
+    - Grant them if needed:
+      ```sql
+      GRANT ALL PRIVILEGES ON DATABASE gomaluum TO youruser;
+      ```
+  </Accordion>
+</AccordionGroup>
+
+## Migrating from SQLite/LibSQL
+
+GoMa'luum previously used SQLite/LibSQL for analytics. If you are upgrading from that version and want to preserve your existing analytics data, use the provided migration scripts.
+
+<Steps>
+  <Step title="Set up PostgreSQL">
+    Install and configure a PostgreSQL database, then set `DATABASE_URL` in your environment. Start GoMa'luum once so it creates the schema automatically.
+  </Step>
+
+  <Step title="Run the migration script">
+    <CodeGroup>
+
+    ```bash Shell script (recommended)
+    ./scripts/migrate.sh \
+      -s "file:old_analytics.db" \
+      -t "postgresql://user:pass@localhost:5432/gomaluum"
+    ```
+
+    ```bash Go script
+    go run scripts/migrate_analytics.go \
+      -source "file:old_analytics.db" \
+      -target "postgresql://user:pass@localhost:5432/gomaluum"
+    ```
+
+    ```bash Dry run (preview without writing)
+    ./scripts/migrate.sh \
+      -s "file:old_analytics.db" \
+      -t "postgresql://user:pass@localhost:5432/gomaluum" \
+      --dry-run
+    ```
+
+    </CodeGroup>
+
+    The migration script handles schema creation, data format conversion, and duplicate prevention using `ON CONFLICT DO NOTHING`.
+  </Step>
+
+  <Step title="Update environment variables">
+    Remove the old `DB_PATH` variable and ensure `DATABASE_URL` is set to your PostgreSQL connection string.
+  </Step>
+
+  <Step title="Verify the migration">
+    ```sql
+    SELECT COUNT(*) FROM analytics;
+    SELECT level, COUNT(*) FROM analytics GROUP BY level;
+    ```
+  </Step>
+</Steps>
+
+### Manual migration
+
+If you prefer to migrate data manually from an exported CSV or SQL dump:
+
+```sql
+INSERT INTO analytics (matric_no, timestamp)
+SELECT matric_no, timestamp FROM your_sqlite_backup_table
+ON CONFLICT (matric_no) DO NOTHING;
+```
+
+For detailed migration script documentation, see `scripts/README.md` in the repository.

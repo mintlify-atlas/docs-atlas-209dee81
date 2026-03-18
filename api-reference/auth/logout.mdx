@@ -1,0 +1,118 @@
+---
+title: 'Logout'
+description: 'Clear the active IIUM CAS session associated with your token.'
+api: 'GET https://api.quddus.my/api/auth/logout'
+---
+
+Sends a logout request to IIUM CAS, invalidating the underlying session cookie that was embedded in your PASETO token at login. The PASETO token itself remains cryptographically valid after logout, but any scraper endpoints that rely on the CAS cookie will fail.
+
+<Warning>
+  Calling this endpoint terminates your IIUM CAS session. You will need to [log in again](/api-reference/auth/login) to obtain a usable token.
+</Warning>
+
+## Request headers
+
+<ParamField header="Authorization" type="string" required>
+  `Bearer <token>` — the PASETO token returned by [POST /api/auth/login](/api-reference/auth/login).
+</ParamField>
+
+<ParamField header="x-gomaluum-key" type="string">
+  Required if an API key was supplied during login. Must be the same key that was used when the token was generated.
+</ParamField>
+
+## Response
+
+<ResponseField name="message" type="string">
+  Human-readable confirmation message.
+</ResponseField>
+
+<ResponseField name="data" type="null">
+  Always `null` for this endpoint.
+</ResponseField>
+
+## Error responses
+
+| Status | `message`                   | Cause                                                              |
+| ------ | --------------------------- | ------------------------------------------------------------------ |
+| `401`  | `Invalid token`             | The `Authorization` header is missing or the token is invalid.     |
+| `401`  | `Invalid PASETO issuer`     | The token was not issued by this server.                           |
+| `401`  | `Invalid API key`           | The `x-gomaluum-key` does not match the key used at login.         |
+| `500`  | `Failed to parse URL`       | Internal error constructing the CAS logout request.                |
+
+<RequestExample>
+
+```bash cURL
+curl --request GET \
+  --url https://api.quddus.my/api/auth/logout \
+  --header 'Authorization: Bearer v4.public.eyJhbGciOiJFZERTQSJ9...'
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.quddus.my/api/auth/logout', {
+  method: 'GET',
+  headers: {
+    Authorization: `Bearer ${token}`,
+  },
+});
+
+const data = await response.json();
+console.log(data.message);
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    'https://api.quddus.my/api/auth/logout',
+    headers={
+        'Authorization': f'Bearer {token}',
+    },
+)
+
+print(response.json()['message'])
+```
+
+```go Go
+package main
+
+import (
+    "fmt"
+    "net/http"
+    "encoding/json"
+)
+
+func main() {
+    req, _ := http.NewRequest("GET", "https://api.quddus.my/api/auth/logout", nil)
+    req.Header.Set("Authorization", "Bearer "+token)
+
+    resp, err := http.DefaultClient.Do(req)
+    if err != nil {
+        panic(err)
+    }
+    defer resp.Body.Close()
+
+    var result map[string]any
+    json.NewDecoder(resp.Body).Decode(&result)
+    fmt.Println(result["message"])
+}
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json 200
+{
+  "message": "Logout successful! Token has been cleared.",
+  "data": null
+}
+```
+
+```json 401
+{
+  "message": "Invalid token",
+  "status": 401
+}
+```
+
+</ResponseExample>

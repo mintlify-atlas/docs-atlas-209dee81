@@ -1,0 +1,117 @@
+---
+title: "PASETO tokens"
+description: "How GoMa'luum uses PASETO v4 tokens to carry your IIUM session statelessly across requests."
+---
+
+GoMa'luum uses [PASETO v4](https://paseto.io) (Platform-Agnostic SEcurity TOkens) as its token format. PASETO is a modern, opinionated alternative to JWT designed to eliminate the cryptographic footguns that JWT's algorithm-agnostic design allows.
+
+## PASETO vs JWT
+
+| Property | PASETO v4 | JWT |
+|----------|-----------|-----|
+| Algorithm agility | No — one algorithm per version | Yes — any algorithm, including `none` |
+| Signature algorithm | Ed25519 | Typically RS256 or HS256 |
+| Confusion attacks | Not possible | Possible if `alg` header is not validated |
+| Token size | Compact | Compact |
+| Standardised claims | Yes | Yes |
+
+GoMa'luum uses **PASETO v4 public** (asymmetric), meaning tokens are signed with an Ed25519 private key and verified with the corresponding public key. The token contents are not encrypted at the PASETO layer — confidentiality comes from the AES-256-GCM layer applied to individual fields before they are placed in the token.
+
+## Token payload
+
+After PASETO verification, the token contains the following fields:
+
+| Claim | Type | Description |
+|-------|------|-------------|
+| `imaluumCookie` | string | AES-256-GCM encrypted `MOD_AUTH_CAS` IIUM session cookie |
+| `username` | string | AES-256-GCM encrypted IIUM username |
+| `password` | string | AES-256-GCM encrypted base64-encoded IIUM password |
+| `iss` | string | Issuer — always `gomaluum` |
+| `iat` | timestamp | Issued-at time |
+| `nbf` | timestamp | Not-before time |
+| `exp` | timestamp | Expiry time (set to the current time at issuance — see below) |
+
+<Note>
+  The `imaluumCookie`, `username`, and `password` fields are encrypted with your API key (AES-256-GCM) before being stored in the token. They are not readable without the corresponding API key.
+</Note>
+
+## Token lifecycle
+
+### Creation
+
+A token is created when you call `POST /api/auth/login`. GoMa'luum:
+
+1. Authenticates your credentials against IIUM's CAS via an internal gRPC service.
+2. Receives the `MOD_AUTH_CAS` session cookie from IIUM.
+3. Encrypts the cookie, username, and password with your API key.
+4. Signs the resulting PASETO token with its Ed25519 private key.
+5. Returns the token to you.
+
+### Expiry and auto-refresh
+
+GoMa'luum intentionally sets the PASETO `exp` claim to the current time (not a future time). On every request, the server uses `NewParserWithoutExpiryCheck()` to skip PASETO's built-in expiry validation — it performs its own expiry logic instead.
+
+The effective session lifetime is controlled by the IIUM CAS session, not by GoMa'luum. When the server detects that the embedded IIUM cookie has expired, it automatically:
+
+1. Re-authenticates against IIUM using the stored credentials.
+2. Obtains a fresh `MOD_AUTH_CAS` cookie.
+3. Returns the fresh cookie to the request handler transparently.
+
+This means you can store your PASETO token indefinitely and GoMa'luum will silently refresh the underlying IIUM session as needed.
+
+<Warning>
+  Auto-refresh requires the credentials stored in the token (username and password) to remain valid. If your IIUM password changes, the token will fail to refresh and you must log in again to get a new token.
+</Warning>
+
+### Revocation
+
+Calling `GET /api/auth/logout` invalidates your IIUM CAS session on IIUM's servers. GoMa'luum does not maintain a token blocklist, so the PASETO token itself is not revoked server-side. Once the IIUM session is gone, however, the token can no longer be used to fetch data and auto-refresh will also fail if your IIUM password is still valid.
+
+## Using the token
+
+Pass the token in the `Authorization` header using the `Bearer` scheme on every authenticated request.
+
+```http
+GET /api/profile HTTP/1.1
+Host: api.quddus.my
+Authorization: Bearer v4.public.eyJhdWQiOiJnb21hbHV1bSIs...
+x-gomaluum-key: gml_1703123456_a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678
+```
+
+The `Authorization` header must:
+
+- Be present on all routes except the public endpoints listed in the [authentication overview](/authentication/overview).
+- Start with exactly `Bearer ` (with a space).
+- Be followed by the full PASETO token string starting with `v4.public.`.
+
+If the header is missing, malformed (does not start with `Bearer `), or contains an invalid token, the server returns `401 Unauthorized`.
+
+## Server key configuration
+
+The PASETO keys are loaded from environment variables at startup:
+
+| Variable | Description |
+|----------|-------------|
+| `PASETO_PUBLIC_KEY` | Hex-encoded Ed25519 public key used to verify tokens |
+| `PASETO_SECRET_KEY` | Hex-encoded Ed25519 private key used to sign tokens |
+
+These are set once on the server and are not rotated automatically. See the [self-hosting guide](/guides/self-hosting) for how to generate and configure these keys.
+
+## Middleware behaviour
+
+The `PasetoAuthenticator` middleware in `internal/server/middleware.go` runs on every request and:
+
+1. Skips authentication for `/api/auth/login` and `/api/key/generate`.
+2. Reads and validates the `Authorization: Bearer` header.
+3. Reads the `x-gomaluum-key` header; falls back to the default key if absent.
+4. Calls `DecodePasetoToken()` which verifies the Ed25519 signature, checks the `iss` claim, and decrypts the payload fields.
+5. Places the decrypted IIUM cookie into the request context as `ctxToken` for downstream handlers to use.
+
+## Security best practices
+
+- **Store the token securely**: Treat the PASETO token like a password. Store it in secure storage (e.g., a keychain, encrypted storage, or an HTTP-only cookie) rather than `localStorage`.
+- **Always pair with your API key**: Tokens issued with an API key cannot be decrypted without it. Keep both the token and key together and equally protected.
+- **Use HTTPS**: The token is transmitted as a plain HTTP header value. Never send it over an unencrypted connection.
+- **Do not log tokens**: If you instrument your application with logging, exclude the `Authorization` header from logs.
+- **Rotate after credential changes**: If you change your IIUM password, your existing token's auto-refresh will fail. Log in again to issue a new token.
+- **One token per context**: Avoid sharing tokens across users or applications. Each application instance should maintain its own token.

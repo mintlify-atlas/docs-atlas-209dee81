@@ -1,0 +1,258 @@
+---
+title: "API keys"
+description: "Generate and use GoMa'luum API keys to add a double-encryption layer to your PASETO tokens."
+---
+
+API keys are an optional but recommended security enhancement. When you provide an API key during login, GoMa'luum encrypts the sensitive fields inside your PASETO token (IIUM cookie, username, password) with your key using AES-256-GCM **before** the PASETO layer is applied. This means the token payload is protected by two independent encryption layers.
+
+## Why use an API key?
+
+- **Double encryption**: Data is encrypted with your key first, then wrapped in a PASETO token signed with the server's private key. Compromising one layer does not expose the other.
+- **Token binding**: A token generated with your API key cannot be decrypted by a client that does not have your key.
+- **Key isolation**: Different applications or environments can use different keys, limiting blast radius if a key is exposed.
+- **Independent rotation**: You can rotate your API key independently of the server's PASETO keys.
+
+<Note>
+  API keys are **optional**. If you omit the `x-gomaluum-key` header, the server uses the built-in default key `gomaluum-default-key-2024`. This is acceptable for local development but is not recommended for production.
+</Note>
+
+## API key format
+
+GoMa'luum issues timestamped API keys in the following format:
+
+```
+gml_<unix_timestamp>_<64-char hex string>
+```
+
+Example:
+
+```
+gml_1703123456_a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678
+```
+
+- The `gml_` prefix identifies it as a GoMa'luum key.
+- The Unix timestamp records when the key was generated.
+- The 64-character hex string is 32 bytes (256 bits) of cryptographically random data.
+
+The server derives a 32-byte AES key from your API key using SHA-256 before using it for encryption.
+
+## Setup
+
+<Steps>
+  <Step title="Generate a key">
+    Call `POST /api/key/generate`. No authentication is required.
+
+    ```bash
+    curl -X POST https://api.quddus.my/api/key/generate
+    ```
+
+    Response:
+
+    ```json
+    {
+      "api_key": "gml_1703123456_a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678",
+      "message": "API key generated successfully. Include this key in the 'x-gomaluum-key' header for enhanced security.",
+      "created_at": "now"
+    }
+    ```
+
+    Save the `api_key` value immediately. GoMa'luum does not store generated keys — there is no way to retrieve it again.
+  </Step>
+  <Step title="Login with your API key">
+    Include the key in the `x-gomaluum-key` header when calling the login endpoint. This tells the server which key to use when encrypting the token payload.
+
+    ```bash
+    curl -X POST https://api.quddus.my/api/auth/login \
+      -H "Content-Type: application/json" \
+      -H "x-gomaluum-key: gml_1703123456_a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678" \
+      -d '{"username": "2210001", "password": "yourpassword"}'
+    ```
+
+    The returned PASETO token is now bound to your API key.
+  </Step>
+  <Step title="Include the key on every subsequent request">
+    Pass the same API key in the `x-gomaluum-key` header alongside the `Authorization: Bearer` token on every authenticated request.
+
+    ```bash
+    curl https://api.quddus.my/api/profile \
+      -H "Authorization: Bearer v4.public.eyJhdWQiOiJnb21hbHV1bSIs..." \
+      -H "x-gomaluum-key: gml_1703123456_a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678"
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  You must use the **same API key** for login and for all subsequent requests. The token payload is encrypted with the key provided at login time. Using a different key will cause decryption to fail and return `401 Unauthorized`.
+</Warning>
+
+## Code examples
+
+<CodeGroup>
+
+```bash curl
+# 1. Generate a key
+curl -X POST https://api.quddus.my/api/key/generate
+
+# 2. Login
+curl -X POST https://api.quddus.my/api/auth/login \
+  -H "Content-Type: application/json" \
+  -H "x-gomaluum-key: gml_1703123456_a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678" \
+  -d '{"username": "2210001", "password": "yourpassword"}'
+
+# 3. Use the API
+curl https://api.quddus.my/api/profile \
+  -H "Authorization: Bearer v4.public.eyJhdWQiOiJnb21hbHV1bSIs..." \
+  -H "x-gomaluum-key: gml_1703123456_a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678"
+```
+
+```javascript JavaScript
+const BASE_URL = 'https://api.quddus.my';
+
+// 1. Generate a key
+const keyRes = await fetch(`${BASE_URL}/api/key/generate`, { method: 'POST' });
+const { api_key } = await keyRes.json();
+
+// 2. Login
+const loginRes = await fetch(`${BASE_URL}/api/auth/login`, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'x-gomaluum-key': api_key,
+  },
+  body: JSON.stringify({ username: '2210001', password: 'yourpassword' }),
+});
+const { data } = await loginRes.json();
+const token = data.token;
+
+// 3. Use the API
+const profileRes = await fetch(`${BASE_URL}/api/profile`, {
+  headers: {
+    'Authorization': `Bearer ${token}`,
+    'x-gomaluum-key': api_key,
+  },
+});
+const profile = await profileRes.json();
+```
+
+```python Python
+import requests
+
+BASE_URL = 'https://api.quddus.my'
+
+# 1. Generate a key
+key_res = requests.post(f'{BASE_URL}/api/key/generate')
+api_key = key_res.json()['api_key']
+
+# 2. Login
+login_res = requests.post(
+    f'{BASE_URL}/api/auth/login',
+    headers={'x-gomaluum-key': api_key},
+    json={'username': '2210001', 'password': 'yourpassword'},
+)
+token = login_res.json()['data']['token']
+
+# 3. Use the API
+profile_res = requests.get(
+    f'{BASE_URL}/api/profile',
+    headers={
+        'Authorization': f'Bearer {token}',
+        'x-gomaluum-key': api_key,
+    },
+)
+profile = profile_res.json()
+```
+
+```go Go
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"net/http"
+)
+
+const baseURL = "https://api.quddus.my"
+
+func main() {
+	// 1. Generate a key
+	keyResp, _ := http.Post(baseURL+"/api/key/generate", "application/json", nil)
+	var keyData struct {
+		APIKey string `json:"api_key"`
+	}
+	json.NewDecoder(keyResp.Body).Decode(&keyData)
+	keyResp.Body.Close()
+	apiKey := keyData.APIKey
+
+	// 2. Login
+	loginBody, _ := json.Marshal(map[string]string{
+		"username": "2210001",
+		"password": "yourpassword",
+	})
+	loginReq, _ := http.NewRequest("POST", baseURL+"/api/auth/login", bytes.NewBuffer(loginBody))
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginReq.Header.Set("x-gomaluum-key", apiKey)
+
+	client := &http.Client{}
+	loginResp, _ := client.Do(loginReq)
+	var loginData struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	json.NewDecoder(loginResp.Body).Decode(&loginData)
+	loginResp.Body.Close()
+	token := loginData.Data.Token
+
+	// 3. Use the API
+	apiReq, _ := http.NewRequest("GET", baseURL+"/api/profile", nil)
+	apiReq.Header.Set("Authorization", "Bearer "+token)
+	apiReq.Header.Set("x-gomaluum-key", apiKey)
+
+	apiResp, _ := client.Do(apiReq)
+	var profile map[string]interface{}
+	json.NewDecoder(apiResp.Body).Decode(&profile)
+	apiResp.Body.Close()
+
+	fmt.Println(profile)
+}
+```
+
+</CodeGroup>
+
+## Default key fallback
+
+If the `x-gomaluum-key` header is absent, the server uses `gomaluum-default-key-2024` for both encryption (at login) and decryption (on subsequent requests). This means:
+
+- Clients that do not send the header at all will work transparently.
+- Tokens created without an API key can only be decoded without an API key — you cannot add a key later to a token that was issued without one.
+
+<Tip>
+  For local development or quick testing, omitting the header is fine. For any deployment that handles real student credentials, always generate and use your own key.
+</Tip>
+
+## Key validation rules
+
+The server accepts a key if it meets **one** of the following:
+
+1. It equals the default key `gomaluum-default-key-2024`.
+2. It starts with `gml_` (timestamped format from `/api/key/generate`).
+3. It is a 64-character lowercase hex string (raw generated key without prefix).
+
+Any other value causes the server to return `401 Unauthorized` before the token is inspected.
+
+## Error responses
+
+| Scenario | Status | Message |
+|----------|--------|---------|
+| Key provided but format is invalid | `401` | `Unauthorized` |
+| Key does not match the key used at login time | `401` | `Unauthorized` |
+| API key generation fails (server error) | `500` | `Failed to generate API key` |
+
+## Best practices
+
+- **One key per application**: Use separate keys for development, staging, and production.
+- **Never commit keys**: Store them in environment variables or a secrets manager, not in source code.
+- **Rotate regularly**: Generate a new key, update your application config, and re-authenticate.
+- **Always use HTTPS**: The key is transmitted as a plain HTTP header; TLS is essential.
+- **Log usage, not values**: If you instrument your application, log that a key was used but never log the key string itself.

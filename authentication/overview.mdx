@@ -1,0 +1,129 @@
+---
+title: "Authentication overview"
+description: "How GoMa'luum authenticates requests: a two-layer model using PASETO tokens and optional API key encryption."
+---
+
+GoMa'luum uses a two-layer authentication model. Every protected request requires a **PASETO v4 token** passed as a Bearer token. On top of that, an optional **API key** adds a second encryption layer to the data stored inside the token.
+
+## The two layers
+
+| Layer | Header | Required | Purpose |
+|-------|--------|----------|---------|
+| PASETO token | `Authorization: Bearer <token>` | Yes | Carries your encrypted IIUM session |
+| API key | `x-gomaluum-key: <key>` | No | Encrypts the token payload before PASETO wraps it |
+
+If you omit the `x-gomaluum-key` header, the server falls back to a built-in default key (`gomaluum-default-key-2024`). This keeps the API backward-compatible, but using your own generated key is strongly recommended for any production use.
+
+## What the PASETO token contains
+
+When you log in, GoMa'luum authenticates against IIUM's CAS system via an internal gRPC service. The resulting IIUM session cookie (`MOD_AUTH_CAS`) — along with your username and base64-encoded password — is encrypted with your API key and then packed into a signed PASETO v4 token.
+
+The token payload fields are:
+
+| Field | Description |
+|-------|-------------|
+| `imaluumCookie` | Your IIUM `MOD_AUTH_CAS` session cookie, AES-256-GCM encrypted with your API key |
+| `username` | Your IIUM username, AES-256-GCM encrypted with your API key |
+| `password` | Your IIUM password (base64), AES-256-GCM encrypted with your API key |
+| `iss` | Issuer claim, always `gomaluum` |
+| `iat` / `nbf` / `exp` | Standard PASETO time claims |
+
+Because everything sensitive is encrypted before being placed in the token, even a compromised PASETO private key does not directly expose your credentials — an attacker would also need your API key.
+
+## Auth flow
+
+<Steps>
+  <Step title="(Optional) Generate an API key">
+    Call `POST /api/key/generate` to get a key in the format `gml_<timestamp>_<hex>`. Store it securely. You will pass it as the `x-gomaluum-key` header on every request.
+
+    Skip this step if you are testing or do not need the extra encryption layer. The default key will be used automatically.
+  </Step>
+  <Step title="Login">
+    Send your IIUM credentials to `POST /api/auth/login`. Include `x-gomaluum-key` if you generated a key.
+
+    ```bash
+    curl -X POST https://api.quddus.my/api/auth/login \
+      -H "Content-Type: application/json" \
+      -H "x-gomaluum-key: gml_1703123456_a1b2c3d4e5f6789012345678901234567890abcd" \
+      -d '{"username": "2210001", "password": "yourpassword"}'
+    ```
+
+    The response contains a `token` field.
+
+    ```json
+    {
+      "message": "Login successful! Please use the token in the Authorization header for future requests.",
+      "data": {
+        "token": "v4.public.eyJhdWQiOiJnb21hbHV1bSIs...",
+        "username": "2210001"
+      }
+    }
+    ```
+  </Step>
+  <Step title="Use the token in subsequent requests">
+    Include the token as a Bearer token in the `Authorization` header. If you used an API key during login, include the same key on every subsequent request so the server can decrypt the token payload.
+
+    ```bash
+    curl https://api.quddus.my/api/profile \
+      -H "Authorization: Bearer v4.public.eyJhdWQiOiJnb21hbHV1bSIs..." \
+      -H "x-gomaluum-key: gml_1703123456_a1b2c3d4e5f6789012345678901234567890abcd"
+    ```
+  </Step>
+  <Step title="Logout (optional)">
+    Call `GET /api/auth/logout` to invalidate your IIUM CAS session on IIUM's servers. The PASETO token itself is not revoked on GoMa'luum's side — it becomes useless once the underlying IIUM session is gone.
+  </Step>
+</Steps>
+
+<Warning>
+  The API key used during login and the API key used on subsequent requests **must match**. If they differ, the server cannot decrypt the token payload and will return `401 Unauthorized`.
+</Warning>
+
+## Encryption flow summary
+
+**Login (token creation):**
+
+```
+IIUM cookie + username + password
+        ↓  AES-256-GCM (your API key)
+  encrypted fields
+        ↓  PASETO v4 sign (server private key)
+  PASETO token  →  returned to you
+```
+
+**Subsequent requests (token validation):**
+
+```
+PASETO token  →  Bearer header
+        ↓  PASETO v4 verify (server public key)
+  encrypted fields
+        ↓  AES-256-GCM decrypt (your API key from x-gomaluum-key)
+  IIUM cookie  →  used to proxy your request to i-Ma'luum
+```
+
+## Session expiry and auto-refresh
+
+GoMa'luum does not enforce its own token expiry — it uses `NewParserWithoutExpiryCheck()` and skips PASETO's built-in expiry check. Instead, token expiry is tied to the IIUM CAS session. When a request arrives with an expired token, GoMa'luum automatically re-authenticates against IIUM using the stored credentials and returns a fresh session cookie, transparently refreshing the session without requiring you to log in again.
+
+<Note>
+  Automatic session refresh means you rarely need to call the login endpoint more than once per application lifecycle. Keep your token stored persistently alongside your API key.
+</Note>
+
+## Routes that skip authentication
+
+The following endpoints do not require an `Authorization` header and are always accessible:
+
+- `POST /api/auth/login`
+- `POST /api/key/generate`
+- `GET /api/analytics`
+- `GET /health`
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="API keys" icon="key" href="/authentication/api-keys">
+    Learn how to generate and use API keys for the double-encryption layer.
+  </Card>
+  <Card title="PASETO tokens" icon="shield-halved" href="/authentication/paseto-tokens">
+    Understand the token format, payload structure, and lifecycle.
+  </Card>
+</CardGroup>
